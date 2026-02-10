@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Gestión de Turnos GGT",
+  "description": "Aplicación profesional para el control de asistencia mediante códigos QR, con gestión de personal, reportes y sistema de licencias.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
