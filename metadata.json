@@ -1,7 +1,13 @@
 {
-  "name": "Copy of Gestión de Turnos GGT",
-  "description": "Aplicación profesional para el control de asistencia mediante códigos QR, con gestión de personal, reportes y sistema de licencias.",
+  "name": "GGT GateGourmet Control",
+  "description": "Control de turnos profesional para GateGourmet. Escaneo QR de alta velocidad y gestión de base de datos local de 2000 usuarios.",
   "requestFramePermissions": [
-    "camera"
+    "camera",
+    "microphone"
+  ],
+  "androidPermissions": [
+    "android.permission.CAMERA",
+    "android.permission.WRITE_EXTERNAL_STORAGE",
+    "android.permission.READ_EXTERNAL_STORAGE"
   ]
 }

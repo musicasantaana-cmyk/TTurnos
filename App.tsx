@@ -693,7 +693,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 selection:bg-ggreen/10 relative overflow-x-hidden">
+    <div className="min-h-screen bg-slate-50 selection:bg-ggreen/10 relative overflow-x-hidden pb-20">
       {isLicenseExpired && <LicenseGuard onActivate={handleActivate} />}
       
       <header className="bg-gblack p-4 text-white flex items-center gap-3 shadow-2xl sticky top-0 z-[1000] rounded-b-3xl">
@@ -724,8 +724,8 @@ const App: React.FC = () => {
       {renderBottomNav()}
       {showScanner && <Scanner onScan={handleScan} onClose={() => setShowScanner(false)} />}
       
-      {/* MARCA DE AGUA VISIBLE */}
-      <div className="fixed bottom-24 right-4 text-[9px] font-black text-slate-400/50 uppercase pointer-events-none z-[1000] tracking-widest brand-font drop-shadow-sm">
+      {/* MARCA DE AGUA VISIBLE Y FIJA SOBRE TODO */}
+      <div className="fixed bottom-24 right-4 text-[9px] font-black text-slate-950 uppercase pointer-events-none z-[5000] tracking-widest brand-font drop-shadow-md bg-white/10 px-2 py-1 rounded-full backdrop-blur-sm border border-white/10">
         creado por Enrique Forero
       </div>
     </div>
