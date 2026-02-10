@@ -49,7 +49,7 @@
             font-weight: 900;
         }
 
-        /* Optimizaciones para Android */
+        /* Optimizaciones para Android y Web */
         input, button {
             outline: none !important;
         }
@@ -63,7 +63,9 @@
   "imports": {
     "react/": "https://esm.sh/react@^19.2.4/",
     "react": "https://esm.sh/react@^19.2.4",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/"
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.4"
   }
 }
 </script>
@@ -71,6 +73,11 @@
 <body class="safe-area-top">
     <div id="root"></div>
     <div class="watermark fixed bottom-2 right-2 text-[8px] opacity-30 z-[2000]">creado por Enrique Forero</div>
+    
+    <!-- Librerías externas -->
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    
+    <!-- Entrada principal de la aplicación -->
+    <script type="module" src="/index.tsx"></script>
 </body>
 </html>
