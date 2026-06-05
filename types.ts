@@ -30,9 +30,33 @@ export interface BackupConfig {
   prefix: string;
 }
 
+export interface InventoryItem {
+  id: string; // The item name or a slug
+  name: string;
+  quantity: number;
+}
+
+export interface DeliveryRecord {
+  id: string;
+  timestamp: number;
+  personKey: string;
+  itemName: string;
+  quantity: number;
+}
+
+export interface AbsenceRecord {
+  id: string;
+  personKey: string;
+  dateStr: string;
+  reason: string;
+}
+
 export interface AppState {
   personnel: Person[];
   shifts: ShiftRecord[];
+  inventory: InventoryItem[];
+  deliveries: DeliveryRecord[];
+  absences: AbsenceRecord[];
   installDate: number;
   isActivated: boolean;
   scheduleConfig: Record<number, DaySchedule>;
@@ -43,6 +67,9 @@ export enum View {
   DASHBOARD = 'dashboard',
   PERSONNEL = 'personnel',
   REPORTS = 'reports',
+  REPORTS_ATTENDANCE = 'reports_attendance',
+  REPORTS_GENERAL = 'reports_general',
+  REPORTS_SHIFT = 'reports_shift',
   SETTINGS = 'settings',
   ENROLLMENT = 'enrollment',
   SHIFT_ACTION = 'shift_action',
@@ -50,5 +77,8 @@ export enum View {
   CONFLICT = 'conflict',
   INDICATORS = 'indicators',
   INDICATORS_SETTINGS = 'indicators_settings',
-  BACKUP_SETTINGS = 'backup_settings'
+  BACKUP_SETTINGS = 'backup_settings',
+  SUPPLIES = 'supplies',
+  NEW_SUPPLY = 'new_supply',
+  DELIVER_SUPPLY = 'deliver_supply'
 }

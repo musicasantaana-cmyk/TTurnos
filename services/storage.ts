@@ -1,5 +1,5 @@
 
-import { AppState, Person, ShiftRecord, DaySchedule, BackupConfig } from '../types';
+import { AppState, Person, ShiftRecord, DaySchedule, BackupConfig, InventoryItem, DeliveryRecord } from '../types';
 import { STORAGE_KEY } from '../constants';
 
 const defaultScheduleConfig: Record<number, DaySchedule> = {
@@ -21,6 +21,9 @@ const defaultBackupConfig: BackupConfig = {
 const initialState: AppState = {
   personnel: [],
   shifts: [],
+  inventory: [],
+  deliveries: [],
+  absences: [],
   installDate: Date.now(),
   isActivated: false,
   scheduleConfig: defaultScheduleConfig,
@@ -38,6 +41,9 @@ export const loadState = (): AppState => {
       ...parsed,
       personnel: parsed.personnel || [],
       shifts: parsed.shifts || [],
+      inventory: parsed.inventory || [],
+      deliveries: parsed.deliveries || [],
+      absences: parsed.absences || [],
       scheduleConfig: parsed.scheduleConfig || defaultScheduleConfig,
       backupConfig: parsed.backupConfig || defaultBackupConfig
     };

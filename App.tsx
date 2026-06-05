@@ -1,11 +1,156 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { AppState, View, Person, ShiftRecord, ShiftType } from './types';
+import { AppState, View, Person, ShiftRecord, ShiftType, InventoryItem, DeliveryRecord } from './types';
 import { loadState, saveState, escapeCsvField, shareFile } from './services/storage';
 import { TRIAL_DAYS, MS_PER_DAY, MAX_REPORTS_DAYS, ACTIVATION_CODE, MAX_PERSONNEL_LIMIT } from './constants';
 import { LicenseGuard } from './components/LicenseGuard';
 import { Scanner } from './components/Scanner';
 import logoUrl from './src/assets/images/promo_ambiental_logo_1780671403616.png';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
+
+const ShiftEditModal: React.FC<{
+  context: { personKey: string; dateStr: string };
+  state: AppState;
+  setState: React.Dispatch<React.SetStateAction<AppState>>;
+  onClose: () => void;
+}> = ({ context, state, setState, onClose }) => {
+  const person = state.personnel.find(p => p.key === context.personKey);
+  const dayShifts = state.shifts
+    .filter(s => s.personKey === context.personKey && s.dateStr === context.dateStr)
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const [inTime, setInTime] = useState<string>('');
+  const [outTime, setOutTime] = useState<string>('');
+  const [inShiftId, setInShiftId] = useState<string | null>(null);
+  const [outShiftId, setOutShiftId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Basic pair assumption (first IN, last OUT)
+    const inShift = dayShifts.find(s => s.type === 'INICIO');
+    const outShift = dayShifts.find(s => s.type === 'FIN');
+
+    if (inShift) {
+      setInShiftId(inShift.id);
+      const d = new Date(inShift.timestamp);
+      setInTime(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
+    }
+    if (outShift) {
+      setOutShiftId(outShift.id);
+      const d = new Date(outShift.timestamp);
+      setOutTime(`${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`);
+    }
+  }, [context]);
+
+  const handleSave = () => {
+    setState(prev => {
+      let newShifts = [...prev.shifts];
+      const selectedDateParts = context.dateStr.split('-');
+      const year = parseInt(selectedDateParts[0]);
+      const month = parseInt(selectedDateParts[1]) - 1;
+      const day = parseInt(selectedDateParts[2]);
+
+      // Handle IN shift
+      if (inTime) {
+        const [hours, minutes] = inTime.split(':').map(Number);
+        const timestamp = new Date(year, month, day, hours, minutes).getTime();
+        
+        if (inShiftId) {
+          // Update existing
+          newShifts = newShifts.map(s => s.id === inShiftId ? { ...s, timestamp } : s);
+        } else {
+          // Create new
+          newShifts.push({
+            id: Date.now().toString() + "-in",
+            personKey: context.personKey,
+            type: 'INICIO',
+            timestamp,
+            dateStr: context.dateStr
+          });
+        }
+      } else if (inShiftId) {
+        // Delete if empty
+        newShifts = newShifts.filter(s => s.id !== inShiftId);
+      }
+
+      // Handle OUT shift
+      if (outTime) {
+        const [hours, minutes] = outTime.split(':').map(Number);
+        const timestamp = new Date(year, month, day, hours, minutes).getTime();
+        
+        if (outShiftId) {
+          // Update existing
+          newShifts = newShifts.map(s => s.id === outShiftId ? { ...s, timestamp } : s);
+        } else {
+          // Create new
+          newShifts.push({
+            id: Date.now().toString() + "-out",
+            personKey: context.personKey,
+            type: 'FIN',
+            timestamp,
+            dateStr: context.dateStr
+          });
+        }
+      } else if (outShiftId) {
+        // Delete if empty
+        newShifts = newShifts.filter(s => s.id !== outShiftId);
+      }
+
+      return { ...prev, shifts: newShifts };
+    });
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[6000] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-sm rounded-[2rem] p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+        <h3 className="text-lg font-black text-gblack text-center mb-1">
+          {person ? `${person.nombre} ${person.apellido}` : 'Colaborador'}
+        </h3>
+        <p className="text-[10px] uppercase font-black tracking-widest text-slate-400 text-center mb-6">
+          Modificar turno del {context.dateStr}
+        </p>
+        
+        <div className="space-y-4 mb-6">
+          <div className="space-y-2">
+            <label className="text-[9px] uppercase font-black text-ggreen tracking-widest block">Hora de Entrada (INICIO)</label>
+            <input 
+              type="time" 
+              value={inTime} 
+              onChange={(e) => setInTime(e.target.value)}
+              className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-sm font-bold text-gblack focus:border-ggreen outline-none"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[9px] uppercase font-black text-orange-500 tracking-widest block">Hora de Salida (FIN)</label>
+            <input 
+              type="time" 
+              value={outTime} 
+              onChange={(e) => setOutTime(e.target.value)}
+              className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-sm font-bold text-gblack focus:border-orange-500 outline-none"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <button 
+            onClick={onClose}
+            className="py-4 text-xs font-black uppercase text-slate-500 hover:text-slate-800 tracking-widest"
+          >
+            Cancelar
+          </button>
+          <button 
+            onClick={handleSave}
+            className="bg-ggreen text-white font-black py-4 rounded-xl shadow-lg shadow-ggreen/20 active:scale-95 transition-all text-xs tracking-widest uppercase"
+          >
+            Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // Importación dinámica de Capacitor para evitar errores en entorno web puro
 const requestNativePermissions = async () => {
@@ -27,11 +172,22 @@ const App: React.FC = () => {
   const [state, setState] = useState<AppState>(loadState());
   const [currentView, setCurrentView] = useState<View>(View.DASHBOARD);
   const [showScanner, setShowScanner] = useState(false);
+  const [scannerContext, setScannerContext] = useState<'shift' | 'supply'>('shift');
   const [pendingScanResult, setPendingScanResult] = useState<string | null>(null);
   const [editingPersonKey, setEditingPersonKey] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [licenseCodeInput, setLicenseCodeInput] = useState('');
   const [showUnregistered, setShowUnregistered] = useState(false);
+  const [showShareOptions, setShowShareOptions] = useState(false);
+  
+  // Shift edit modal state
+  const [editingShiftContext, setEditingShiftContext] = useState<{personKey: string, dateStr: string} | null>(null);
+  
+  // Deletion modal state
+  const [personToDelete, setPersonToDelete] = useState<Person | null>(null);
+  const [deleteReason, setDeleteReason] = useState<string>('');
+  const [supplyForm, setSupplyForm] = useState<{name: string, quantity: string}>({name: '', quantity: ''});
+  const [deliverForm, setDeliverForm] = useState<{itemName: string, quantity: string, personKey?: string}>({itemName: '', quantity: ''});
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [enrollmentForm, setEnrollmentForm] = useState<Partial<Person>>({});
@@ -134,6 +290,17 @@ const App: React.FC = () => {
     setPendingScanResult(data);
     setShowScanner(false);
     
+    if (scannerContext === 'supply') {
+      const existing = state.personnel.find(p => p.key === data);
+      if (existing) {
+        setDeliverForm(prev => ({ ...prev, personKey: data }));
+        setCurrentView(View.DELIVER_SUPPLY);
+      } else {
+        alert("Personal no encontrado en la base de datos.");
+      }
+      return;
+    }
+
     const existing = state.personnel.find(p => p.key === data);
     if (existing) {
       setCurrentView(View.SHIFT_ACTION);
@@ -244,11 +411,27 @@ const App: React.FC = () => {
     setEditingPersonKey(null);
   };
 
-  const deletePerson = (key: string) => {
-    if (confirm("¿ESTÁ SEGURO DE ELIMINAR ESTE REGISTRO?\n\nEsta acción borrará al colaborador de Control de turno de la base de datos principal de forma permanente.")) {
-      setState(prev => ({ ...prev, personnel: prev.personnel.filter(p => p.key !== key) }));
-      if (currentView === View.CONFLICT) setCurrentView(View.DASHBOARD);
+  const requestDeletePerson = (person: Person) => {
+    setPersonToDelete(person);
+    setDeleteReason('');
+  };
+
+  const confirmDeletePerson = () => {
+    if (!personToDelete) return;
+    if (!deleteReason.trim()) {
+      alert("Debe ingresar un motivo para eliminar el registro.");
+      return;
     }
+    
+    // Si necesitas guardar el motivo en reportes lo puedes hacer en el setState
+    setState(prev => ({ 
+      ...prev, 
+      personnel: prev.personnel.filter(p => p.key !== personToDelete.key) 
+    }));
+    
+    if (currentView === View.CONFLICT) setCurrentView(View.DASHBOARD);
+    setPersonToDelete(null);
+    setDeleteReason('');
   };
 
   const startEditing = (person: Person) => {
@@ -278,19 +461,32 @@ const App: React.FC = () => {
   };
 
   const exportMasterDatabase = () => {
-    if (state.personnel.length === 0) {
-      alert("No hay personal para exportar.");
-      return;
-    }
-    const header = "KEY_MAESTRA,NOMBRE,APELLIDO,CEDULA,AREA,Cargo\n";
-    const body = state.personnel.map(p => 
+    let output = "=== PERSONAL ===\nKEY_MAESTRA,NOMBRE,APELLIDO,CEDULA,AREA,CARGO\n";
+    output += state.personnel.map(p => 
       `${escapeCsvField(p.key)},${escapeCsvField(p.nombre)},${escapeCsvField(p.apellido)},${escapeCsvField(p.cedula)},${escapeCsvField(p.area)},${escapeCsvField(p.cargo)}`
     ).join('\n');
-    shareFile(header + body, `CTP_Database_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+    
+    output += "\n\n=== TURNOS ===\nKEY_MAESTRA,TIPO,FECHA_HORA\n";
+    output += state.shifts.map(s =>
+      `${escapeCsvField(s.personKey)},${escapeCsvField(s.type)},${escapeCsvField(new Date(s.timestamp).toISOString())}`
+    ).join('\n');
+
+    output += "\n\n=== INASISTENCIAS ===\nKEY_MAESTRA,FECHA,MOTIVO\n";
+    output += (state.absences || []).map(a =>
+      `${escapeCsvField(a.personKey)},${escapeCsvField(a.dateStr)},${escapeCsvField(a.reason)}`
+    ).join('\n');
+
+    output += "\n\n=== ENTREGAS INSUMOS ===\nKEY_MAESTRA,INSUMO,CANTIDAD,FECHA_HORA\n";
+    output += state.deliveries.map(d =>
+      `${escapeCsvField(d.personKey)},${escapeCsvField(d.itemName)},${d.quantity},${escapeCsvField(new Date(d.timestamp).toISOString())}`
+    ).join('\n');
+    
+    const prefix = state.backupConfig?.prefix || 'CTP';
+    shareFile(output, `${prefix}_Backup_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
   };
 
   const exportDetailedReport = () => {
-    const header = "NOMBRE,APELLIDO,CEDULA,AREA,Cargo,FECHA_INICIO,HORA_INICIO,FECHA_FIN,HORA_FIN,TOTAL_HORAS\n";
+    let output = "=== REPORTE TURNOS ===\nNOMBRE,APELLIDO,CEDULA,AREA,CARGO,FECHA_INICIO,HORA_INICIO,FECHA_FIN,HORA_FIN,TOTAL_HORAS\n";
     let csvRows: string[] = [];
     state.personnel.forEach(p => {
       const pairs = getShiftPairs(p.key, selectedDate);
@@ -303,7 +499,26 @@ const App: React.FC = () => {
         csvRows.push(`${escapeCsvField(p.nombre)},${escapeCsvField(p.apellido)},${escapeCsvField(p.cedula)},${escapeCsvField(p.area)},${escapeCsvField(p.cargo)},${startDate},${startTime},${endDate},${endTime},${diff.toFixed(2)}`);
       });
     });
-    shareFile(header + csvRows.join('\n'), `CTP_Report_${selectedDate}.csv`, 'text/csv');
+    output += csvRows.join('\n');
+    
+    output += "\n\n=== REPORTE INASISTENCIAS ===\nNOMBRE,APELLIDO,CEDULA,CARGO,FECHA,MOTIVO\n";
+    const absencesRows = (state.absences || []).filter(a => a.dateStr === selectedDate).map(a => {
+       const p = state.personnel.find(person => person.key === a.personKey);
+       return `${escapeCsvField(p?.nombre || 'Desconocido')},${escapeCsvField(p?.apellido || '')},${escapeCsvField(p?.cedula || '')},${escapeCsvField(p?.cargo || '')},${escapeCsvField(a.dateStr)},${escapeCsvField(a.reason)}`;
+    }).join('\n');
+    output += absencesRows;
+
+    output += "\n\n=== REPORTE ENTREGAS INSUMOS ===\nNOMBRE,APELLIDO,CEDULA,INSUMO,CANTIDAD,FECHA,HORA\n";
+    const deliveriesRows = state.deliveries.map(d => {
+       const p = state.personnel.find(person => person.key === d.personKey);
+       const dDate = new Date(d.timestamp).toLocaleDateString();
+       const dTime = new Date(d.timestamp).toLocaleTimeString();
+       return `${escapeCsvField(p?.nombre || 'Desconocido')},${escapeCsvField(p?.apellido || '')},${escapeCsvField(p?.cedula || '')},${escapeCsvField(d.itemName)},${d.quantity},${dDate},${dTime}`;
+    }).join('\n');
+    
+    output += "\n" + deliveriesRows;
+    const prefix = state.backupConfig?.prefix || 'CTP';
+    shareFile(output, `${prefix}_Report_${selectedDate}.csv`, 'text/csv');
   };
 
   const renderBottomNav = () => (
@@ -316,13 +531,17 @@ const App: React.FC = () => {
         <i className="fas fa-users-gear text-2xl mb-1"></i>
         <span className="text-[10px] font-black uppercase tracking-wider">Personal</span>
       </button>
-      <button onClick={() => setCurrentView(View.REPORTS)} className={`flex flex-col items-center justify-center w-full h-full transition-all active:scale-90 ${currentView === View.REPORTS ? 'text-ggreen scale-110' : 'text-slate-500 opacity-60'}`}>
+      <button onClick={() => setCurrentView(View.REPORTS)} className={`flex flex-col items-center justify-center w-full h-full transition-all active:scale-90 ${[View.REPORTS, View.REPORTS_ATTENDANCE, View.REPORTS_SHIFT].includes(currentView) ? 'text-ggreen scale-110' : 'text-slate-500 opacity-60'}`}>
         <i className="fas fa-file-invoice text-2xl mb-1"></i>
         <span className="text-[10px] font-black uppercase tracking-wider">Reportes</span>
       </button>
       <button onClick={() => setCurrentView(View.INDICATORS)} className={`flex flex-col items-center justify-center w-full h-full transition-all active:scale-90 ${[View.INDICATORS, View.INDICATORS_SETTINGS].includes(currentView) ? 'text-ggreen scale-110' : 'text-slate-500 opacity-60'}`}>
         <i className="fas fa-chart-line text-2xl mb-1"></i>
         <span className="text-[10px] font-black uppercase tracking-wider">Indicadores</span>
+      </button>
+      <button onClick={() => setCurrentView(View.SUPPLIES)} className={`flex flex-col items-center justify-center w-full h-full transition-all active:scale-90 ${[View.SUPPLIES, View.NEW_SUPPLY, View.DELIVER_SUPPLY].includes(currentView) ? 'text-ggreen scale-110' : 'text-slate-500 opacity-60'}`}>
+        <i className="fas fa-box text-2xl mb-1"></i>
+        <span className="text-[10px] font-black uppercase tracking-wider">Insumos</span>
       </button>
     </nav>
   );
@@ -455,7 +674,7 @@ const App: React.FC = () => {
                 <button onClick={() => startEditing(p)} className="w-11 h-11 rounded-2xl text-slate-300 hover:text-ggreen transition-all active:scale-90">
                   <i className="fas fa-pen text-sm"></i>
                 </button>
-                <button onClick={() => deletePerson(p.key)} className="w-11 h-11 rounded-2xl text-slate-200 hover:text-red-500 transition-all active:scale-90">
+                <button onClick={() => requestDeletePerson(p)} className="w-11 h-11 rounded-2xl text-slate-200 hover:text-red-500 transition-all active:scale-90">
                   <i className="fas fa-trash-alt text-sm"></i>
                 </button>
               </div>
@@ -466,16 +685,87 @@ const App: React.FC = () => {
     </div>
   );
 
-  const renderReports = () => (
-    <div className="p-6 pb-24 space-y-6 animate-in fade-in duration-500">
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-black text-gblack mb-1">Reportes CTP</h2>
-          <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Asistencia Diaria</p>
-        </div>
-        <button onClick={exportDetailedReport} className="bg-gblack text-white px-5 py-3 rounded-2xl font-black text-[10px] flex items-center gap-2 shadow-2xl active:scale-95">
-          <i className="fas fa-share-nodes"></i> DESCARGAR CSV
+  const renderReportsHub = () => (
+    <div className="p-6 pb-24 space-y-4 animate-in fade-in duration-500">
+      <div>
+        <h2 className="text-2xl font-black text-gblack mb-1">Módulo Reportes</h2>
+        <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">General, Asistencia, Indicadores e Insumos</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 mt-6">
+         <button onClick={() => setCurrentView(View.REPORTS_SHIFT)} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center gap-3 active:scale-95 transition-all text-center">
+            <div className="w-12 h-12 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center text-xl"><i className="fas fa-table-list"></i></div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-gblack">Reporte de Turno</span>
+         </button>
+         
+         <button onClick={() => setCurrentView(View.REPORTS_ATTENDANCE)} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center gap-3 active:scale-95 transition-all text-center">
+            <div className="w-12 h-12 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center text-xl"><i className="fas fa-clipboard-user"></i></div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-gblack">Asistencia Diario</span>
+         </button>
+         
+         <button onClick={() => setCurrentView(View.INDICATORS)} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center gap-3 active:scale-95 transition-all text-center">
+            <div className="w-12 h-12 bg-ggreen/10 text-ggreen rounded-full flex items-center justify-center text-xl"><i className="fas fa-chart-line"></i></div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-gblack">Indicadores Personal</span>
+         </button>
+         
+         <button onClick={() => setCurrentView(View.SUPPLIES)} className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-center gap-3 active:scale-95 transition-all text-center">
+            <div className="w-12 h-12 bg-purple-50 text-purple-500 rounded-full flex items-center justify-center text-xl"><i className="fas fa-box"></i></div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-gblack">Insumos y Entrega</span>
+         </button>
+         
+         <button onClick={() => exportDetailedReport()} className="bg-slate-900 p-5 rounded-3xl shadow-xl flex flex-col items-center gap-3 active:scale-95 transition-all text-center">
+            <div className="w-12 h-12 bg-white/10 text-white rounded-full flex items-center justify-center text-xl"><i className="fas fa-file-csv"></i></div>
+            <span className="text-[10px] font-black uppercase tracking-widest text-white">Reporte General Diurno</span>
+         </button>
+      </div>
+    </div>
+  );
+
+  const absenceReasons = [
+    'RTM - RESTRICCIONES',
+    'AUS - AUSENCIA SIN JUSTIFICAR',
+    'PNR - PERMISO NO REMUNERADO',
+    'MED - PERMISO MEDICO',
+    'PRL - PERMISO LABORAL',
+    'ACC - INCAP. POR ACCIDENTE DE TRABAJO',
+    'INC - INCAP. POR ENFERMEDAD GENERAL',
+    'PXC - PERMISO POR CALAMIDAD',
+    'FAM - PERMISO POR DÍA DE LA FAMILIA',
+    'NDL - NO DEBÍA LABORAR',
+    'SAN - SANCIÓN',
+    'VAC - VACACIONES',
+    'LCL - LICENCIA DE LUTO',
+    'RETIRO',
+    'TRASLADO',
+    'VACANTES'
+  ];
+
+  const handleReasonChange = (personKey: string, reason: string) => {
+    setState(prev => {
+       const existingAbsences = prev.absences || [];
+       const filtered = existingAbsences.filter(a => !(a.personKey === personKey && a.dateStr === selectedDate));
+       if (reason) {
+          filtered.push({
+             id: Date.now().toString(),
+             personKey,
+             dateStr: selectedDate,
+             reason
+          });
+       }
+       return { ...prev, absences: filtered };
+    });
+  };
+
+  const renderReportsAttendance = () => (
+    <div className="p-6 pb-24 space-y-6 animate-in slide-in-from-right duration-300">
+      <div className="flex items-center gap-4">
+        <button onClick={() => setCurrentView(View.REPORTS)} className="w-10 h-10 bg-white shadow-sm border border-slate-100 rounded-xl flex items-center justify-center text-slate-600 active:scale-90 transition-all">
+          <i className="fas fa-arrow-left"></i>
         </button>
+        <div>
+          <h2 className="text-xl font-black text-gblack mb-0 leading-tight">Asistencia</h2>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-tight">Detalle control turno</p>
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
@@ -490,7 +780,7 @@ const App: React.FC = () => {
 
       <div className="flex gap-2 p-1 bg-slate-100 rounded-2xl">
          <button onClick={() => setShowUnregistered(false)} className={`flex-1 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${!showUnregistered ? 'bg-white text-gblack shadow-sm' : 'text-slate-400'}`}>Registrados</button>
-         <button onClick={() => setShowUnregistered(true)} className={`flex-1 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${showUnregistered ? 'bg-white text-red-500 shadow-sm' : 'text-slate-400'}`}>Sin Registro</button>
+         <button onClick={() => setShowUnregistered(true)} className={`flex-1 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all ${showUnregistered ? 'bg-white text-red-500 shadow-sm' : 'text-slate-400'}`}>Faltantes</button>
       </div>
 
       {!showUnregistered ? (
@@ -509,7 +799,11 @@ const App: React.FC = () => {
                   const pairs = getShiftPairs(p.key, selectedDate);
                   if (pairs.length === 0) return null;
                   return pairs.map((pair, idx) => (
-                    <tr key={`${p.key}-${idx}`} className="hover:bg-slate-50/50">
+                    <tr 
+                      key={`${p.key}-${idx}`} 
+                      className="hover:bg-slate-50/50 cursor-pointer active:bg-slate-100 transition-colors"
+                      onClick={() => setEditingShiftContext({ personKey: p.key, dateStr: selectedDate })}
+                    >
                       <td className="p-4">
                         <div className="font-black text-gblack text-sm">{p.nombre}</div>
                         <div className="text-[8px] text-slate-400 font-black uppercase tracking-widest">{p.cargo}</div>
@@ -538,21 +832,189 @@ const App: React.FC = () => {
                <p className="text-ggreen font-black uppercase text-[10px] tracking-widest">¡Asistencia completa hoy!</p>
             </div>
           ) : (
-            unregisteredInDate.map(p => (
-              <div key={p.key} className="bg-white p-5 rounded-[2rem] shadow-sm border-l-4 border-l-red-400 border border-slate-100 flex items-center gap-4">
-                 <div className="w-12 h-12 bg-slate-100 text-slate-400 rounded-2xl flex items-center justify-center text-lg font-black">{p.nombre[0]}{p.apellido[0]}</div>
-                 <div className="flex-1">
-                    <h3 className="font-black text-gblack text-sm">{p.nombre} {p.apellido}</h3>
-                    <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{p.cargo || 'LOGISTICA'}</p>
-                 </div>
-                 <div className="bg-red-50 text-red-600 text-[8px] font-black px-2 py-1 rounded-lg uppercase tracking-widest">AUSENTE</div>
-              </div>
-            ))
+            unregisteredInDate.map(p => {
+               const savedAbsence = state.absences?.find(a => a.personKey === p.key && a.dateStr === selectedDate);
+               return (
+                  <div key={p.key} className="bg-white p-4 rounded-[2rem] shadow-sm border-l-4 border-l-red-400 border border-slate-100 flex flex-col gap-3">
+                     <div className="flex items-center gap-4">
+                       <div className="w-10 h-10 bg-slate-100 text-slate-400 rounded-2xl flex items-center justify-center font-black">{p.nombre[0]}{p.apellido[0]}</div>
+                       <div className="flex-1">
+                          <h3 className="font-black text-gblack text-sm">{p.nombre} {p.apellido}</h3>
+                          <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{p.cargo || 'LOGISTICA'}</p>
+                       </div>
+                     </div>
+                     <div className="pt-2 border-t border-slate-50">
+                        <select
+                          className="w-full bg-slate-50 border border-slate-100 p-2 rounded-xl text-[10px] font-bold text-gblack outline-none focus:border-red-400 transition-colors"
+                          value={savedAbsence?.reason || ''}
+                          onChange={(e) => handleReasonChange(p.key, e.target.value)}
+                        >
+                           <option value="">-- Seleccionar Causa de Ausencia --</option>
+                           {absenceReasons.map(r => (
+                              <option key={r} value={r}>{r}</option>
+                           ))}
+                        </select>
+                     </div>
+                  </div>
+               );
+            })
           )}
         </div>
       )}
     </div>
   );
+
+  const reportRef = useRef<HTMLDivElement>(null);
+
+  const handleShare = async (type: 'pdf' | 'image' | 'csv') => {
+    setShowShareOptions(false);
+    
+    if (type === 'csv') {
+      let output = `ASISTENCIA DIARIA CENTRO OPERATIVO B 9\nFecha,${selectedDate}\n\n`;
+      output += `CONCEPTO,CANTIDAD,PORCENTAJE\n`;
+      const nomina = state.personnel.length;
+      output += `PLAN OPERATIVO,${nomina},\n`;
+      output += `NOMINA,${nomina},\n`;
+      
+      const absencesToday = (state.absences || []).filter(a => a.dateStr === selectedDate);
+      absenceReasons.forEach(r => {
+        const count = absencesToday.filter(a => a.reason === r).length;
+        const percentage = nomina > 0 ? ((count / nomina) * 100).toFixed(1) : '0.0';
+        output += `${escapeCsvField(r)},${count},${percentage}%\n`;
+      });
+      
+      const operativos = nomina - absencesToday.length;
+      const operativosPct = nomina > 0 ? ((operativos / nomina) * 100).toFixed(1) : '0.0';
+      output += `OPERATIVOS,${operativos},${operativosPct}%\n`;
+      
+      shareFile(output, `Reporte_Turno_${selectedDate}.csv`, 'text/csv');
+      return;
+    }
+
+    if (!reportRef.current) return;
+    
+    try {
+      const canvas = await html2canvas(reportRef.current, { scale: 2 });
+      
+      if (type === 'image') {
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `Reporte_Turno_${selectedDate}.png`;
+          a.click();
+          URL.revokeObjectURL(url);
+        }, 'image/png');
+      } else if (type === 'pdf') {
+        const imgData = canvas.toDataURL('image/png');
+        const pdf = new jsPDF({
+          orientation: 'portrait',
+          unit: 'px',
+          format: [canvas.width, canvas.height]
+        });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save(`Reporte_Turno_${selectedDate}.pdf`);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error al generar el documento.");
+    }
+  };
+
+  const renderReportsShift = () => {
+     const nomina = state.personnel.length;
+     const absencesToday = (state.absences || []).filter(a => a.dateStr === selectedDate);
+     const operativos = nomina - absencesToday.length;
+     
+     return (
+        <div className="p-6 pb-24 space-y-6 animate-in slide-in-from-right duration-300">
+          <div className="flex items-center gap-4">
+            <button onClick={() => setCurrentView(View.REPORTS)} className="w-10 h-10 bg-white shadow-sm border border-slate-100 rounded-xl flex items-center justify-center text-slate-600 active:scale-90 transition-all">
+              <i className="fas fa-arrow-left"></i>
+            </button>
+            <div>
+              <h2 className="text-xl font-black text-gblack mb-0 leading-tight">Reporte Turno</h2>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-tight">Indicadores de asistencia</p>
+            </div>
+          </div>
+          
+          <div className="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex items-center gap-4">
+             <div className="w-10 h-10 bg-ggreen/10 text-ggreen rounded-xl flex items-center justify-center">
+                <i className="fas fa-calendar-alt"></i>
+             </div>
+             <div className="flex-1">
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Seleccionar Fecha</label>
+                <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full bg-transparent font-black text-gblack outline-none text-base" />
+             </div>
+          </div>
+          
+          <div ref={reportRef} className="bg-white shadow-lg border border-slate-200 text-xs overflow-hidden" style={{fontFamily: "Arial, sans-serif"}}>
+             <div className="bg-[#A4D65E] text-center font-bold text-gray-800 p-2 uppercase border-b border-white">
+                Asistencia Diaria Centro Operativo
+             </div>
+             <div className="bg-[#B5E66A] text-center text-white py-1 italic border-b border-[#A4D65E]">
+                {new Date(selectedDate + "T00:00:00").toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+             </div>
+             
+             <div className="grid grid-cols-12 text-center text-[10px] font-bold">
+                <div className="col-span-8 bg-gray-100 py-1 border-b border-r border-gray-300 text-gray-700">PLAN OPERATIVO</div>
+                <div className="col-span-2 bg-gray-100 py-1 border-b border-r border-gray-300 text-gray-800">{nomina}</div>
+                <div className="col-span-2 bg-gray-100 border-b border-gray-300 flex items-center justify-center"><i className="fas fa-chart-pie text-[#A4D65E]"></i></div>
+                
+                <div className="col-span-8 bg-gray-200 py-1 border-b border-r border-gray-300 text-gray-700">NOMINA</div>
+                <div className="col-span-2 bg-gray-200 py-1 border-b border-r border-gray-300 text-gray-800">{nomina}</div>
+                <div className="col-span-2 bg-gray-200 border-b border-gray-300"></div>
+                
+                {absenceReasons.map((r, i) => {
+                   const count = absencesToday.filter(a => a.reason === r).length;
+                   const pct = nomina > 0 ? (count / nomina * 100).toFixed(1) : '0,0';
+                   const bgColor = i % 2 === 0 ? 'bg-white' : 'bg-gray-50';
+                   let valBgColor = bgColor;
+                   if (count > 0) {
+                      if (r.includes('AUSENCIA') || r.includes('VACANTES')) valBgColor = 'bg-red-500 text-white';
+                      else if (r.includes('VACACIONES')) valBgColor = 'bg-[#A4D65E] text-white';
+                      else if (r.includes('ENFERMEDAD')) valBgColor = 'bg-amber-400 text-white';
+                      else valBgColor = 'bg-gray-300';
+                   }
+                   
+                   return (
+                      <React.Fragment key={r}>
+                         <div className={`col-span-8 text-left pl-2 py-1 border-b border-r border-gray-300 text-gray-600 ${bgColor}`}>{r}</div>
+                         <div className={`col-span-2 py-1 border-b border-r border-gray-300 font-bold ${valBgColor}`}>{count}</div>
+                         <div className={`col-span-2 py-1 border-b border-gray-300 text-gray-600 ${count > 0 ? 'bg-blue-400 text-white font-bold' : bgColor}`}>{pct}%</div>
+                      </React.Fragment>
+                   );
+                })}
+                
+                <div className="col-span-8 bg-[#A4D65E] font-bold text-white py-1 border-r border-white text-right pr-4">OPERATIVOS</div>
+                <div className="col-span-2 bg-yellow-400 font-bold text-gray-800 py-1 border-r border-white">{operativos}</div>
+                <div className="col-span-2 bg-blue-500 font-bold text-white py-1">{nomina > 0 ? (operativos/nomina*100).toFixed(1) : '0,0'}%</div>
+             </div>
+          </div>
+          
+          <div className="relative">
+             <button onClick={() => setShowShareOptions(!showShareOptions)} className="w-full bg-gblack text-white font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all text-xs uppercase tracking-widest flex items-center justify-center gap-2">
+                <i className="fas fa-share-nodes"></i> Compartir Reporte
+             </button>
+             
+             {showShareOptions && (
+                <div className="absolute bottom-full mb-3 inset-x-0 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col z-10 animate-in slide-in-from-bottom-2">
+                   <button onClick={() => handleShare('pdf')} className="p-4 text-left font-bold text-gblack hover:bg-slate-50 flex items-center gap-3 border-b border-slate-50">
+                      <i className="fas fa-file-pdf text-red-500 text-lg"></i> Exportar como PDF
+                   </button>
+                   <button onClick={() => handleShare('image')} className="p-4 text-left font-bold text-gblack hover:bg-slate-50 flex items-center gap-3 border-b border-slate-50">
+                      <i className="fas fa-file-image text-blue-500 text-lg"></i> Exportar como Imagen
+                   </button>
+                   <button onClick={() => handleShare('csv')} className="p-4 text-left font-bold text-gblack hover:bg-slate-50 flex items-center gap-3">
+                      <i className="fas fa-file-csv text-ggreen text-lg"></i> Exportar como CSV
+                   </button>
+                </div>
+             )}
+          </div>
+        </div>
+     );
+  };
 
   const renderSettings = () => (
     <div className="p-6 pb-24 space-y-6 animate-in fade-in slide-in-from-right-10 duration-500">
@@ -643,6 +1105,7 @@ const App: React.FC = () => {
     let totalExpectedHours = 0;
     let daysCount = 0;
     let daysWorkedCount = 0;
+    const chartData: any[] = [];
     
     const [sY, sM, sD] = indStartDate.split('-').map(Number);
     let currentDate = new Date(sY, sM - 1, sD);
@@ -681,6 +1144,12 @@ const App: React.FC = () => {
       }
       totalActualHours += dayActualHours;
       
+      chartData.push({
+        date: String(currentDate.getDate()).padStart(2, '0') + '/' + String(currentDate.getMonth() + 1).padStart(2, '0'),
+        Esperadas: Number(expectedHours.toFixed(1)),
+        Reales: Number(dayActualHours.toFixed(1))
+      });
+      
       currentDate.setDate(currentDate.getDate() + 1);
     }
     
@@ -688,7 +1157,8 @@ const App: React.FC = () => {
       totalActualHours,
       totalExpectedHours,
       avgHoursPerDay: daysWorkedCount > 0 ? totalActualHours / daysWorkedCount : 0,
-      compliancePercentage: totalExpectedHours > 0 ? (totalActualHours / totalExpectedHours) * 100 : 0
+      compliancePercentage: totalExpectedHours > 0 ? (totalActualHours / totalExpectedHours) * 100 : 0,
+      chartData
     };
   };
 
@@ -773,6 +1243,26 @@ const App: React.FC = () => {
                    </div>
                    <span className="text-3xl font-black text-gblack tracking-tight">{indicators.avgHoursPerDay.toFixed(1)}<span className="text-sm">h</span></span>
                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mt-1">Promedio / Día</span>
+                </div>
+             </div>
+
+             <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 mt-4">
+                <h3 className="text-xs font-black text-gblack uppercase tracking-widest mb-4">Rendimiento (Horas)</h3>
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={indicators.chartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                      <XAxis dataKey="date" tick={{fontSize: 10}} tickLine={false} axisLine={false} />
+                      <YAxis tick={{fontSize: 10}} tickLine={false} axisLine={false} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '1rem', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                        itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: '10px' }} />
+                      <Bar dataKey="Esperadas" fill="#94A3B8" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Reales" fill="#84CC16" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
              </div>
              
@@ -916,6 +1406,206 @@ const App: React.FC = () => {
     );
   };
 
+  const renderSupplies = () => {
+    return (
+      <div className="p-6 pb-24 space-y-6 animate-in fade-in duration-500">
+        <div className="flex justify-between items-center bg-white p-4 rounded-[2rem] shadow-sm border border-slate-100">
+          <div className="flex items-center gap-4">
+             <div className="w-12 h-12 bg-ggreen/10 border-2 border-ggreen rounded-xl flex items-center justify-center text-ggreen">
+               <i className="fas fa-box text-xl"></i>
+             </div>
+             <div>
+                <h2 className="text-xl font-black text-gblack mb-0 leading-tight">Insumos</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-tight">Control de elementos</p>
+             </div>
+          </div>
+          <button onClick={() => setCurrentView(View.NEW_SUPPLY)} className="w-10 h-10 bg-ggreen text-white rounded-xl shadow-lg shadow-ggreen/20 flex items-center justify-center active:scale-90 transition-all">
+             <i className="fas fa-plus"></i>
+          </button>
+        </div>
+
+        <div className="bg-gblack p-6 rounded-[2rem] shadow-xl text-center active:scale-95 transition-all cursor-pointer" onClick={() => {
+           setScannerContext('supply');
+           setShowScanner(true);
+        }}>
+           <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center text-white mx-auto mb-4 border border-white/10">
+             <i className="fas fa-hand-holding-box text-2xl"></i>
+           </div>
+           <h3 className="text-lg font-black text-white uppercase tracking-widest">Entregar Artículo</h3>
+           <p className="text-[10px] text-slate-400 font-bold tracking-widest">Escanear código de usuario</p>
+        </div>
+
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 space-y-4">
+           <h3 className="text-xs font-black text-gblack uppercase tracking-widest mb-4">Inventario Actual</h3>
+           {state.inventory.length === 0 ? (
+             <p className="text-xs text-slate-400 font-bold text-center py-4 uppercase tracking-widest">No hay insumos</p>
+           ) : (
+             <div className="space-y-3">
+               {state.inventory.map(item => (
+                 <div key={item.id} className="flex justify-between items-center p-4 bg-slate-50 border border-slate-100 rounded-xl">
+                   <div className="font-bold text-gblack">{item.name}</div>
+                   <div className="font-black text-ggreen text-lg">{item.quantity}</div>
+                 </div>
+               ))}
+             </div>
+           )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderNewSupply = () => {
+    const handleSave = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!supplyForm.name || !supplyForm.quantity) return;
+      
+      const newId = Date.now().toString();
+      setState(prev => ({
+        ...prev,
+        inventory: [...prev.inventory, { id: newId, name: supplyForm.name, quantity: parseInt(supplyForm.quantity) }]
+      }));
+      setSupplyForm({name: '', quantity: ''});
+      setCurrentView(View.SUPPLIES);
+    };
+
+    return (
+      <div className="p-6 pb-24 space-y-6 animate-in slide-in-from-right duration-300">
+        <div className="flex items-center gap-4">
+          <button onClick={() => setCurrentView(View.SUPPLIES)} className="w-10 h-10 bg-white shadow-sm border border-slate-100 rounded-xl flex items-center justify-center text-slate-600 active:scale-90 transition-all">
+            <i className="fas fa-arrow-left"></i>
+          </button>
+          <div>
+            <h2 className="text-xl font-black text-gblack mb-0 leading-tight">Nuevo Ingreso</h2>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-tight">Agregar al inventario</p>
+          </div>
+        </div>
+
+        <form onSubmit={handleSave} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 space-y-6">
+           <div className="space-y-2">
+              <label className="text-[9px] uppercase font-black text-ggreen tracking-widest block">Nombre del Artículo</label>
+              <input 
+                type="text" 
+                required
+                value={supplyForm.name} 
+                onChange={(e) => setSupplyForm(prev => ({...prev, name: e.target.value}))}
+                placeholder="Ej. Guantes"
+                className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-sm font-bold text-gblack focus:border-ggreen outline-none"
+              />
+           </div>
+           <div className="space-y-2">
+              <label className="text-[9px] uppercase font-black text-ggreen tracking-widest block">Cantidad</label>
+              <input 
+                type="number" 
+                required
+                min="1"
+                value={supplyForm.quantity} 
+                onChange={(e) => setSupplyForm(prev => ({...prev, quantity: e.target.value}))}
+                placeholder="10"
+                className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-sm font-bold text-gblack focus:border-ggreen outline-none"
+              />
+           </div>
+           <button type="submit" className="w-full bg-ggreen text-white font-black py-4 rounded-xl shadow-xl shadow-ggreen/20 active:scale-95 transition-all tracking-widest uppercase text-xs">
+              Guardar Insumo
+           </button>
+        </form>
+      </div>
+    );
+  };
+
+  const renderDeliverSupply = () => {
+    const person = state.personnel.find(p => p.key === deliverForm.personKey);
+    if (!person) return null;
+
+    const handleDeliver = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!deliverForm.itemName || !deliverForm.quantity || !deliverForm.personKey) return;
+      
+      const itemToUpdate = state.inventory.find(i => i.id === deliverForm.itemName);
+      const deliveryQty = parseInt(deliverForm.quantity);
+      
+      if (!itemToUpdate || itemToUpdate.quantity < deliveryQty) {
+        alert("Cantidad insuficiente en inventario.");
+        return;
+      }
+      
+      const newInventory = state.inventory.map(i => {
+        if (i.id === deliverForm.itemName) {
+          return { ...i, quantity: i.quantity - deliveryQty };
+        }
+        return i;
+      });
+      
+      const record: DeliveryRecord = {
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+        personKey: deliverForm.personKey,
+        itemName: itemToUpdate.name,
+        quantity: deliveryQty
+      };
+
+      setState(prev => ({
+        ...prev,
+        inventory: newInventory,
+        deliveries: [...prev.deliveries, record]
+      }));
+      setDeliverForm({itemName: '', quantity: ''});
+      setCurrentView(View.SUPPLIES);
+      setScannerContext('shift'); // reset
+    };
+
+    return (
+      <div className="p-6 pb-24 space-y-6 animate-in zoom-in-95 duration-300">
+        <div className="bg-white p-6 rounded-[2.5rem] shadow-xl text-center border border-slate-100 relative overflow-hidden">
+          <div className="absolute top-0 inset-x-0 h-32 bg-gblack -z-10"></div>
+          <div className="flex items-center gap-4 mb-4 text-white">
+            <button onClick={() => setCurrentView(View.SUPPLIES)} className="w-10 h-10 bg-white/10 hover:bg-white/20 rounded-xl flex items-center justify-center transition-all">
+              <i className="fas fa-arrow-left"></i>
+            </button>
+            <span className="text-xs font-black uppercase tracking-widest">Entrega de elementos</span>
+          </div>
+          <div className="mt-8">
+            <div className="w-24 h-24 bg-white text-ggreen rounded-3xl flex items-center justify-center mx-auto mb-4 text-4xl font-black shadow-2xl border-8 border-white">
+              {person.nombre[0]}{person.apellido[0]}
+            </div>
+            <h2 className="text-2xl font-black text-gblack tracking-tight">{person.nombre} {person.apellido}</h2>
+            <h3 className="text-sm font-bold text-slate-400 mt-1">{person.cargo}</h3>
+          </div>
+          
+          <form onSubmit={handleDeliver} className="mt-8 space-y-4 text-left">
+             <div className="space-y-2">
+                <label className="text-[9px] uppercase font-black text-ggreen tracking-widest block">Seleccionar Artículo</label>
+                <select 
+                  required
+                  value={deliverForm.itemName} 
+                  onChange={(e) => setDeliverForm(prev => ({...prev, itemName: e.target.value}))}
+                  className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-sm font-bold text-gblack focus:border-ggreen outline-none appearance-none"
+                >
+                  <option value="">-- Elija un insumo --</option>
+                  {state.inventory.filter(i => i.quantity > 0).map(i => (
+                    <option key={i.id} value={i.id}>{i.name} (Disp: {i.quantity})</option>
+                  ))}
+                </select>
+             </div>
+             <div className="space-y-2">
+                <label className="text-[9px] uppercase font-black text-ggreen tracking-widest block">Cantidad a Entregar</label>
+                <input 
+                  type="number" 
+                  required
+                  min="1"
+                  value={deliverForm.quantity} 
+                  onChange={(e) => setDeliverForm(prev => ({...prev, quantity: e.target.value}))}
+                  className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-sm font-bold text-gblack focus:border-ggreen outline-none"
+                />
+             </div>
+             <button type="submit" className="w-full bg-ggreen text-white font-black py-4 rounded-xl shadow-xl shadow-ggreen/20 active:scale-95 transition-all tracking-widest uppercase mt-4 text-xs">
+                Confirmar Entrega
+             </button>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
   const renderConflict = () => {
     const existing = state.personnel.find(p => p.key === (enrollmentForm.key || pendingScanResult));
     if (!existing) return null;
@@ -937,7 +1627,7 @@ const App: React.FC = () => {
              <button onClick={() => startEditing(existing)} className="w-full bg-ggreen text-white font-black py-5 rounded-2xl shadow-xl flex items-center justify-center gap-3 active:scale-95">
                 <i className="fas fa-user-pen"></i> EDITAR DATOS
              </button>
-             <button onClick={() => deletePerson(existing.key)} className="w-full bg-red-50 text-red-600 font-black py-4 rounded-2xl flex items-center justify-center gap-3 border border-red-100 active:scale-95">
+             <button onClick={() => requestDeletePerson(existing)} className="w-full bg-red-50 text-red-600 font-black py-4 rounded-2xl flex items-center justify-center gap-3 border border-red-100 active:scale-95">
                 <i className="fas fa-trash"></i> BORRAR REGISTRO
              </button>
              <button onClick={() => { setCurrentView(View.DASHBOARD); setPendingScanResult(null); }} className="w-full bg-slate-100 text-slate-500 font-bold py-3 rounded-2xl mt-4 text-[10px] uppercase">VOLVER</button>
@@ -1052,7 +1742,9 @@ const App: React.FC = () => {
       <main className="max-w-2xl mx-auto min-h-screen">
         {currentView === View.DASHBOARD && renderDashboard()}
         {currentView === View.PERSONNEL && renderPersonnel()}
-        {currentView === View.REPORTS && renderReports()}
+        {currentView === View.REPORTS && renderReportsHub()}
+        {currentView === View.REPORTS_ATTENDANCE && renderReportsAttendance()}
+        {currentView === View.REPORTS_SHIFT && renderReportsShift()}
         {currentView === View.SETTINGS && renderSettings()}
         {currentView === View.ENROLLMENT && renderForm(false)}
         {currentView === View.EDIT_PERSON && renderForm(true)}
@@ -1061,10 +1753,69 @@ const App: React.FC = () => {
         {currentView === View.INDICATORS && renderIndicators()}
         {currentView === View.INDICATORS_SETTINGS && renderIndicatorsSettings()}
         {currentView === View.BACKUP_SETTINGS && renderBackupSettings()}
+        {currentView === View.SUPPLIES && renderSupplies()}
+        {currentView === View.NEW_SUPPLY && renderNewSupply()}
+        {currentView === View.DELIVER_SUPPLY && renderDeliverSupply()}
       </main>
 
       {renderBottomNav()}
       {showScanner && <Scanner onScan={handleScan} onClose={() => setShowScanner(false)} />}
+      
+      {personToDelete && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-4">
+              <i className="fas fa-triangle-exclamation"></i>
+            </div>
+            <h3 className="text-xl font-black text-gblack text-center mb-2 tracking-tight">Eliminar Personal</h3>
+            <p className="text-xs text-slate-500 font-bold text-center mb-6">
+              ¿Está seguro de eliminar a <span className="text-gblack font-black">{personToDelete.nombre} {personToDelete.apellido}</span> de la base de datos principal?
+            </p>
+            
+            <div className="space-y-4 mb-6">
+              <div className="space-y-2">
+                <label className="text-[9px] uppercase font-black text-red-500 tracking-widest block">Motivo de eliminación</label>
+                <select 
+                  value={deleteReason} 
+                  onChange={(e) => setDeleteReason(e.target.value)}
+                  className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-sm font-bold text-gblack focus:border-red-400 outline-none transition-colors appearance-none"
+                >
+                  <option value="">-- Seleccione un motivo --</option>
+                  <option value="RETIRO - FINALIZACIÓN CONTRATO">RETIRO - FINALIZACIÓN CONTRATO</option>
+                  <option value="RETIRO - RENUNCIA">RETIRO - RENUNCIA</option>
+                  <option value="TRASLADO OTRO CENTRO">TRASLADO OTRO CENTRO</option>
+                  <option value="ERROR DE REGISTRO">ERROR DE REGISTRO</option>
+                  <option value="OTRO">OTRO</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button 
+                onClick={() => { setPersonToDelete(null); setDeleteReason(''); }}
+                className="py-4 text-xs font-black uppercase text-slate-500 hover:text-slate-800 tracking-widest"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={confirmDeletePerson}
+                className="bg-red-500 text-white font-black py-4 rounded-xl shadow-lg shadow-red-500/20 active:scale-95 transition-all text-xs tracking-widest uppercase"
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {editingShiftContext && (
+        <ShiftEditModal 
+          context={editingShiftContext} 
+          state={state} 
+          setState={setState} 
+          onClose={() => setEditingShiftContext(null)} 
+        />
+      )}
       
       {/* MARCA DE AGUA VISIBLE Y FIJA SOBRE TODO */}
       <div className="fixed bottom-24 right-4 text-[9px] font-black text-slate-950 uppercase pointer-events-none z-[5000] tracking-widest brand-font drop-shadow-md bg-white/10 px-2 py-1 rounded-full backdrop-blur-sm border border-white/10">
