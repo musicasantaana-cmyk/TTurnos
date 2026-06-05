@@ -179,6 +179,7 @@ const App: React.FC = () => {
   const [licenseCodeInput, setLicenseCodeInput] = useState('');
   const [showUnregistered, setShowUnregistered] = useState(false);
   const [showShareOptions, setShowShareOptions] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   
   // Shift edit modal state
   const [editingShiftContext, setEditingShiftContext] = useState<{personKey: string, dateStr: string} | null>(null);
@@ -460,6 +461,34 @@ const App: React.FC = () => {
     return pairs;
   };
 
+  const handleResetApp = () => {
+    // Generar archivo maestro de backup
+    exportMasterDatabase();
+
+    // Si hay correo configurado, intentar enviar por correo local
+    if (state.backupConfig?.email) {
+      const prefix = state.backupConfig.prefix || 'CTP';
+      const mailtoLink = `mailto:${state.backupConfig.email}?subject=Respaldo Archivo Maestro ${prefix} - ${new Date().toISOString().slice(0, 10)}&body=Por favor adjunta el archivo CSV que acabas de descargar. El sistema se ha reiniciado correctamente.`;
+      setTimeout(() => {
+        window.location.href = mailtoLink;
+      }, 500);
+    }
+
+    // Limpiar toda la data de la app guardando config
+    setState(prev => ({
+      ...prev,
+      personnel: [],
+      shifts: [],
+      absences: [],
+      deliveries: [],
+      inventory: []
+    }));
+    setShowResetConfirm(false);
+    
+    // Mostramos feedback de react en cuanto se pueda o simplemente asume completado
+    alert("Aplicación reiniciada a cero correctamente.");
+  };
+
   const exportMasterDatabase = () => {
     let output = "=== PERSONAL ===\nKEY_MAESTRA,NOMBRE,APELLIDO,CEDULA,AREA,CARGO\n";
     output += state.personnel.map(p => 
@@ -483,6 +512,32 @@ const App: React.FC = () => {
     
     const prefix = state.backupConfig?.prefix || 'CTP';
     shareFile(output, `${prefix}_Backup_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+  };
+
+  const getAbsenceStats = (dateStr: string) => {
+    const nomina = state.personnel.length;
+    let operativosCount = 0;
+    
+    // Contadores por causal
+    const counts: Record<string, number> = {};
+    absenceReasons.forEach(r => counts[r] = 0);
+
+    state.personnel.forEach(p => {
+       const hasInScan = state.shifts.some(s => s.personKey === p.key && s.dateStr === dateStr && s.type === 'INICIO');
+       if (hasInScan) {
+          operativosCount++;
+       } else {
+          // Es faltante, buscar justificación
+          const savedAbsence = (state.absences || []).find(a => a.personKey === p.key && a.dateStr === dateStr);
+          const reason = savedAbsence?.reason || 'AUS - AUSENCIA SIN JUSTIFICAR';
+          
+          if (counts[reason] !== undefined) {
+             counts[reason]++;
+          }
+       }
+    });
+
+    return { nomina, operativosCount, counts };
   };
 
   const exportDetailedReport = () => {
@@ -870,22 +925,20 @@ const App: React.FC = () => {
     setShowShareOptions(false);
     
     if (type === 'csv') {
+      const stats = getAbsenceStats(selectedDate);
       let output = `ASISTENCIA DIARIA CENTRO OPERATIVO B 9\nFecha,${selectedDate}\n\n`;
       output += `CONCEPTO,CANTIDAD,PORCENTAJE\n`;
-      const nomina = state.personnel.length;
-      output += `PLAN OPERATIVO,${nomina},\n`;
-      output += `NOMINA,${nomina},\n`;
+      output += `PLAN OPERATIVO,${stats.nomina},\n`;
+      output += `NOMINA,${stats.nomina},\n`;
       
-      const absencesToday = (state.absences || []).filter(a => a.dateStr === selectedDate);
       absenceReasons.forEach(r => {
-        const count = absencesToday.filter(a => a.reason === r).length;
-        const percentage = nomina > 0 ? ((count / nomina) * 100).toFixed(1) : '0.0';
+        const count = stats.counts[r];
+        const percentage = stats.nomina > 0 ? ((count / stats.nomina) * 100).toFixed(1) : '0.0';
         output += `${escapeCsvField(r)},${count},${percentage}%\n`;
       });
       
-      const operativos = nomina - absencesToday.length;
-      const operativosPct = nomina > 0 ? ((operativos / nomina) * 100).toFixed(1) : '0.0';
-      output += `OPERATIVOS,${operativos},${operativosPct}%\n`;
+      const operativosPct = stats.nomina > 0 ? ((stats.operativosCount / stats.nomina) * 100).toFixed(1) : '0.0';
+      output += `OPERATIVOS,${stats.operativosCount},${operativosPct}%\n`;
       
       shareFile(output, `Reporte_Turno_${selectedDate}.csv`, 'text/csv');
       return;
@@ -923,9 +976,7 @@ const App: React.FC = () => {
   };
 
   const renderReportsShift = () => {
-     const nomina = state.personnel.length;
-     const absencesToday = (state.absences || []).filter(a => a.dateStr === selectedDate);
-     const operativos = nomina - absencesToday.length;
+     const stats = getAbsenceStats(selectedDate);
      
      return (
         <div className="p-6 pb-24 space-y-6 animate-in slide-in-from-right duration-300">
@@ -959,22 +1010,22 @@ const App: React.FC = () => {
              
              <div className="grid grid-cols-12 text-center text-[10px] font-bold">
                 <div className="col-span-8 bg-gray-100 py-1 border-b border-r border-gray-300 text-gray-700">PLAN OPERATIVO</div>
-                <div className="col-span-2 bg-gray-100 py-1 border-b border-r border-gray-300 text-gray-800">{nomina}</div>
+                <div className="col-span-2 bg-gray-100 py-1 border-b border-r border-gray-300 text-gray-800">{stats.nomina}</div>
                 <div className="col-span-2 bg-gray-100 border-b border-gray-300 flex items-center justify-center"><i className="fas fa-chart-pie text-[#A4D65E]"></i></div>
                 
                 <div className="col-span-8 bg-gray-200 py-1 border-b border-r border-gray-300 text-gray-700">NOMINA</div>
-                <div className="col-span-2 bg-gray-200 py-1 border-b border-r border-gray-300 text-gray-800">{nomina}</div>
+                <div className="col-span-2 bg-gray-200 py-1 border-b border-r border-gray-300 text-gray-800">{stats.nomina}</div>
                 <div className="col-span-2 bg-gray-200 border-b border-gray-300"></div>
                 
                 {absenceReasons.map((r, i) => {
-                   const count = absencesToday.filter(a => a.reason === r).length;
-                   const pct = nomina > 0 ? (count / nomina * 100).toFixed(1) : '0,0';
+                   const count = stats.counts[r];
+                   const pct = stats.nomina > 0 ? (count / stats.nomina * 100).toFixed(1) : '0,0';
                    const bgColor = i % 2 === 0 ? 'bg-white' : 'bg-gray-50';
                    let valBgColor = bgColor;
                    if (count > 0) {
                       if (r.includes('AUSENCIA') || r.includes('VACANTES')) valBgColor = 'bg-red-500 text-white';
                       else if (r.includes('VACACIONES')) valBgColor = 'bg-[#A4D65E] text-white';
-                      else if (r.includes('ENFERMEDAD')) valBgColor = 'bg-amber-400 text-white';
+                      else if (r.includes('ENFERMEDAD') || r.includes('INCAP')) valBgColor = 'bg-amber-400 text-white';
                       else valBgColor = 'bg-gray-300';
                    }
                    
@@ -988,8 +1039,8 @@ const App: React.FC = () => {
                 })}
                 
                 <div className="col-span-8 bg-[#A4D65E] font-bold text-white py-1 border-r border-white text-right pr-4">OPERATIVOS</div>
-                <div className="col-span-2 bg-yellow-400 font-bold text-gray-800 py-1 border-r border-white">{operativos}</div>
-                <div className="col-span-2 bg-blue-500 font-bold text-white py-1">{nomina > 0 ? (operativos/nomina*100).toFixed(1) : '0,0'}%</div>
+                <div className="col-span-2 bg-yellow-400 font-bold text-gray-800 py-1 border-r border-white">{stats.operativosCount}</div>
+                <div className="col-span-2 bg-blue-500 font-bold text-white py-1">{stats.nomina > 0 ? (stats.operativosCount/stats.nomina*100).toFixed(1) : '0,0'}%</div>
              </div>
           </div>
           
@@ -1085,6 +1136,20 @@ const App: React.FC = () => {
             <i className="fas fa-chevron-right text-slate-300 group-hover:text-ggreen transition-colors"></i>
          </div>
       </button>
+
+      <button onClick={() => setShowResetConfirm(true)} className="w-full bg-red-50 p-6 rounded-3xl border border-red-100 flex items-center justify-between group active:scale-95 transition-all text-left mt-6">
+         <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-600">
+               <i className="fas fa-triangle-exclamation text-lg"></i>
+            </div>
+            <div>
+               <p className="text-[10px] font-black uppercase tracking-widest text-red-600 mb-1">Borrar Todos Los Datos</p>
+               <p className="text-[8px] font-bold text-red-400 leading-tight">Eliminar registros y reportes</p>
+            </div>
+         </div>
+         <i className="fas fa-chevron-right text-red-300 group-hover:text-red-500 transition-colors"></i>
+      </button>
+
     </div>
   );
 
@@ -1817,6 +1882,37 @@ const App: React.FC = () => {
         />
       )}
       
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-[6000] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-sm rounded-[2rem] p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center text-3xl mx-auto mb-4">
+              <i className="fas fa-radiation"></i>
+            </div>
+            <h3 className="text-xl font-black text-gblack text-center mb-2 tracking-tight">Reiniciar Sistema</h3>
+            <p className="text-xs text-slate-500 font-bold text-center mb-6 leading-relaxed">
+              ¿Está seguro de <span className="text-red-500">eliminar todos los registros y reportes</span>? Esto devolverá la app a cero.
+              <br/><br/>
+              Antes de borrar, se generará y descargará automáticamente un archivo Maestro de Respaldo CSV.
+            </p>
+            
+            <div className="grid grid-cols-1 gap-3">
+              <button 
+                onClick={handleResetApp}
+                className="w-full bg-red-50 text-red-600 border border-red-100 font-black py-4 rounded-xl shadow-lg shadow-red-500/20 active:scale-95 transition-all text-[10px] tracking-widest uppercase flex items-center justify-center gap-2"
+              >
+                <i className="fas fa-cloud-arrow-down text-base"></i> Respaldo & Borrar
+              </button>
+              <button 
+                onClick={() => setShowResetConfirm(false)}
+                className="w-full bg-slate-100/50 text-slate-500 font-black py-4 rounded-xl shadow-sm active:scale-95 transition-all text-xs tracking-widest uppercase"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* MARCA DE AGUA VISIBLE Y FIJA SOBRE TODO */}
       <div className="fixed bottom-24 right-4 text-[9px] font-black text-slate-950 uppercase pointer-events-none z-[5000] tracking-widest brand-font drop-shadow-md bg-white/10 px-2 py-1 rounded-full backdrop-blur-sm border border-white/10">
         creado por Enrique Forero
