@@ -53,7 +53,7 @@ export const shareFile = async (content: string, fileName: string, mimeType: str
       await navigator.share({
         files: [file],
         title: fileName,
-        text: 'Base de datos GGT Personal'
+        text: 'Base de datos CTP Personal'
       });
       return;
     } catch (err) {

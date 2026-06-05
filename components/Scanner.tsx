@@ -55,7 +55,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onScan, onClose }) => {
         <div className="bg-gblack p-4 flex justify-between items-center text-white border-b border-white/5">
           <span className="font-bold flex items-center gap-2 brand-font">
             <i className="fas fa-camera text-ggreen"></i>
-            LECTOR <span className="text-ggreen">GGT</span>
+            LECTOR <span className="text-ggreen">CTP</span>
           </span>
           <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
             <i className="fas fa-times text-xl"></i>

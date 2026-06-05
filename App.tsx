@@ -5,6 +5,23 @@ import { loadState, saveState, escapeCsvField, shareFile } from './services/stor
 import { TRIAL_DAYS, MS_PER_DAY, MAX_REPORTS_DAYS, ACTIVATION_CODE, MAX_PERSONNEL_LIMIT } from './constants';
 import { LicenseGuard } from './components/LicenseGuard';
 import { Scanner } from './components/Scanner';
+import logoUrl from './src/assets/images/promo_ambiental_logo_1780671403616.png';
+
+// Importación dinámica de Capacitor para evitar errores en entorno web puro
+const requestNativePermissions = async () => {
+  try {
+    const { Capacitor } = await import('@capacitor/core');
+    if (Capacitor.isNativePlatform()) {
+      const { Camera } = await import('@capacitor/camera');
+      const status = await Camera.checkPermissions();
+      if (status.camera !== 'granted') {
+        await Camera.requestPermissions({ permissions: ['camera'] });
+      }
+    }
+  } catch (e) {
+    console.warn("Capacitor no está disponible en este entorno:", e);
+  }
+};
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(loadState());
@@ -19,9 +36,13 @@ const App: React.FC = () => {
   
   const [enrollmentForm, setEnrollmentForm] = useState<Partial<Person>>({});
 
+  // Solicitud de permisos nativos al montar la aplicación (Crítico para APK)
+  useEffect(() => {
+    requestNativePermissions();
+  }, []);
+
   // Persistencia robusta: Se guarda en cada cambio de estado
   useEffect(() => {
-    // Purga de reportes (60 días). La base de personal (2000 registros) es permanente.
     const cutoff = Date.now() - (MAX_REPORTS_DAYS * MS_PER_DAY);
     const filteredShifts = state.shifts.filter(s => s.timestamp > cutoff);
     
@@ -164,7 +185,7 @@ const App: React.FC = () => {
 
       if (newPersonnel.length > 0) {
         setState(prev => ({ ...prev, personnel: [...prev.personnel, ...newPersonnel] }));
-        alert(`Éxito: ${newPersonnel.length} registros importados de GateGourmet.`);
+        alert(`Éxito: ${newPersonnel.length} registros importados de Control de turno.`);
       } else if (limitReached) {
         alert(`Error: Se alcanzó el límite de ${MAX_PERSONNEL_LIMIT} usuarios.`);
       } else {
@@ -219,7 +240,7 @@ const App: React.FC = () => {
   };
 
   const deletePerson = (key: string) => {
-    if (confirm("¿ESTÁ SEGURO DE ELIMINAR ESTE REGISTRO?\n\nEsta acción borrará al colaborador de GateGourmet de la base de datos principal de forma permanente.")) {
+    if (confirm("¿ESTÁ SEGURO DE ELIMINAR ESTE REGISTRO?\n\nEsta acción borrará al colaborador de Control de turno de la base de datos principal de forma permanente.")) {
       setState(prev => ({ ...prev, personnel: prev.personnel.filter(p => p.key !== key) }));
       if (currentView === View.CONFLICT) setCurrentView(View.DASHBOARD);
     }
@@ -260,7 +281,7 @@ const App: React.FC = () => {
     const body = state.personnel.map(p => 
       `${escapeCsvField(p.key)},${escapeCsvField(p.nombre)},${escapeCsvField(p.apellido)},${escapeCsvField(p.cedula)},${escapeCsvField(p.area)},${escapeCsvField(p.cargo)}`
     ).join('\n');
-    shareFile(header + body, `GGT_Database_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
+    shareFile(header + body, `CTP_Database_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv');
   };
 
   const exportDetailedReport = () => {
@@ -277,7 +298,7 @@ const App: React.FC = () => {
         csvRows.push(`${escapeCsvField(p.nombre)},${escapeCsvField(p.apellido)},${escapeCsvField(p.cedula)},${escapeCsvField(p.area)},${escapeCsvField(p.cargo)},${startDate},${startTime},${endDate},${endTime},${diff.toFixed(2)}`);
       });
     });
-    shareFile(header + csvRows.join('\n'), `GGT_Report_${selectedDate}.csv`, 'text/csv');
+    shareFile(header + csvRows.join('\n'), `CTP_Report_${selectedDate}.csv`, 'text/csv');
   };
 
   const renderBottomNav = () => (
@@ -301,10 +322,10 @@ const App: React.FC = () => {
     <div className="p-6 pb-24 flex flex-col items-center gap-10 animate-in fade-in duration-500">
       <div className="w-full flex justify-between items-center">
         <div className="flex items-center gap-2">
-           <div className="w-8 h-8 rounded-full border-2 border-ggreen flex items-center justify-center overflow-hidden">
-             <div className="w-5 h-[2px] bg-ggreen"></div>
+           <div className="w-8 h-8 rounded-full border-2 border-ggreen flex items-center justify-center bg-ggreen/10">
+             <i className="fas fa-broom text-ggreen"></i>
            </div>
-           <h1 className="text-xl font-black text-gblack tracking-tight brand-font"><span className="text-ggreen">gate</span>gourmet</h1>
+           <h1 className="text-xl font-black text-gblack tracking-tight brand-font"><span className="text-ggreen">control</span>turno</h1>
         </div>
         <div className="bg-ggreen px-3 py-1 rounded-full text-white text-[9px] font-black uppercase tracking-widest shadow-sm">PANEL CONTROL</div>
       </div>
@@ -361,7 +382,7 @@ const App: React.FC = () => {
              <i className="fas fa-key text-sm"></i>
           </div>
           <p className="text-[10px] text-slate-400 font-bold uppercase leading-relaxed text-left flex-1">
-            VERSIÓN NO ACTIVADA. <span className="text-white underline">PULSE PARA ACTIVAR SU COPIA GGT</span>.
+            VERSIÓN NO ACTIVADA. <span className="text-white underline">PULSE PARA ACTIVAR SU COPIA CTP</span>.
           </p>
           <i className="fas fa-chevron-right text-slate-600"></i>
         </button>
@@ -440,7 +461,7 @@ const App: React.FC = () => {
     <div className="p-6 pb-24 space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-black text-gblack mb-1">Reportes GGT</h2>
+          <h2 className="text-2xl font-black text-gblack mb-1">Reportes CTP</h2>
           <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Asistencia Diaria</p>
         </div>
         <button onClick={exportDetailedReport} className="bg-gblack text-white px-5 py-3 rounded-2xl font-black text-[10px] flex items-center gap-2 shadow-2xl active:scale-95">
@@ -530,19 +551,19 @@ const App: React.FC = () => {
         <button onClick={() => setCurrentView(View.DASHBOARD)} className="w-10 h-10 bg-white shadow-sm border border-slate-100 rounded-xl flex items-center justify-center text-slate-600 active:scale-90 transition-all">
           <i className="fas fa-arrow-left"></i>
         </button>
-        <h2 className="text-2xl font-black text-gblack tracking-tight">Sistema GGT</h2>
+        <h2 className="text-2xl font-black text-gblack tracking-tight">Sistema CTP</h2>
       </div>
 
       <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 text-center">
         <div className={`w-20 h-20 mx-auto rounded-3xl flex items-center justify-center text-3xl mb-6 shadow-inner ${state.isActivated ? 'bg-ggreen/10 text-ggreen' : 'bg-red-50 text-red-600'}`}>
           <i className={state.isActivated ? "fas fa-check-circle" : "fas fa-key"}></i>
         </div>
-        <h3 className="text-xl font-black text-gblack mb-1 uppercase tracking-tight brand-font"><span className="text-ggreen">gate</span>gourmet PRO</h3>
+        <h3 className="text-xl font-black text-gblack mb-1 uppercase tracking-tight brand-font"><span className="text-ggreen">control</span>turno PRO</h3>
         <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mb-8">{state.isActivated ? 'Uso Profesional Activado' : `Versión de prueba: ${daysRemaining} días`}</p>
         {!state.isActivated && (
           <form onSubmit={handleManualActivation} className="space-y-4">
             <input type="password" inputMode="numeric" placeholder="••••" value={licenseCodeInput} onChange={(e) => setLicenseCodeInput(e.target.value)} className="w-full p-5 bg-slate-50 border-2 border-slate-100 rounded-2xl text-center text-2xl font-black tracking-widest focus:ring-8 focus:ring-ggreen/10 outline-none transition-all" />
-            <button type="submit" className="w-full bg-ggreen text-white font-black py-5 rounded-2xl shadow-xl shadow-ggreen/20 active:scale-95 transition-all uppercase tracking-widest text-xs">Activar Licencia GGT</button>
+            <button type="submit" className="w-full bg-ggreen text-white font-black py-5 rounded-2xl shadow-xl shadow-ggreen/20 active:scale-95 transition-all uppercase tracking-widest text-xs">Activar Licencia CTP</button>
           </form>
         )}
       </div>
@@ -570,7 +591,7 @@ const App: React.FC = () => {
             <i className="fas fa-database text-ggreen"></i>
             <div>
                <p className="text-[10px] font-black uppercase tracking-widest text-gblack">Copia de Seguridad</p>
-               <p className="text-[8px] font-bold text-slate-400">Exportar base GateGourmet</p>
+               <p className="text-[8px] font-bold text-slate-400">Exportar base Control de turno</p>
             </div>
          </div>
          <button onClick={exportMasterDatabase} className="bg-ggreen/10 text-ggreen px-4 py-2 rounded-xl text-[10px] font-black uppercase active:scale-90 transition-all">Compartir</button>
@@ -617,13 +638,13 @@ const App: React.FC = () => {
               <i className={isEdit ? "fas fa-user-pen" : "fas fa-user-plus"}></i>
            </div>
            <div>
-              <h2 className="text-2xl font-black text-gblack tracking-tight brand-font">{isEdit ? 'Editar Datos' : 'Inscripción GGT'}</h2>
+              <h2 className="text-2xl font-black text-gblack tracking-tight brand-font">{isEdit ? 'Editar Datos' : 'Inscripción CTP'}</h2>
               <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Base de Datos Central</p>
            </div>
         </div>
         <form onSubmit={isEdit ? handleEditSubmit : handleEnrollmentSubmit} className="space-y-4">
           <div className="bg-gblack p-5 rounded-2xl mb-4 border border-ggreen/20">
-            <label className="text-[9px] uppercase font-black text-ggreen tracking-widest mb-1 block">Llave Maestra GGT</label>
+            <label className="text-[9px] uppercase font-black text-ggreen tracking-widest mb-1 block">Llave Maestra CTP</label>
             <div className="text-xs font-mono text-white break-all leading-tight font-bold">{enrollmentForm.key}</div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -652,7 +673,7 @@ const App: React.FC = () => {
           </div>
           <div className="pt-6 flex flex-col gap-3">
             <button type="submit" className={`w-full ${isEdit ? 'bg-gblack' : 'bg-ggreen'} text-white font-black py-5 rounded-2xl shadow-2xl active:scale-95 text-xs uppercase tracking-widest`}>
-              {isEdit ? 'ACTUALIZAR DATOS' : 'GUARDAR EN BASE GGT'}
+              {isEdit ? 'ACTUALIZAR DATOS' : 'GUARDAR EN BASE CTP'}
             </button>
             <button type="button" onClick={() => setCurrentView(View.PERSONNEL)} className="w-full bg-slate-100 text-slate-400 font-bold py-3 rounded-2xl text-[9px] uppercase tracking-widest">CANCELAR</button>
           </div>
@@ -672,7 +693,7 @@ const App: React.FC = () => {
             <div className="w-32 h-32 bg-white text-ggreen rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 text-5xl font-black shadow-2xl border-[12px] border-white active:scale-110 transition-transform">
               {person.nombre[0]}{person.apellido[0]}
             </div>
-            <h2 className="text-3xl font-black text-gblack tracking-tight leading-none brand-font"><span className="text-ggreen">gate</span>gourmet</h2>
+            <h2 className="text-3xl font-black text-gblack tracking-tight leading-none brand-font"><span className="text-ggreen">control</span>turno</h2>
             <h3 className="text-xl font-bold text-slate-400 mt-1">{person.nombre} {person.apellido}</h3>
             <div className="mt-8 mb-12 flex flex-col items-center gap-1">
                <span className="text-[10px] font-black uppercase tracking-widest bg-ggreen text-white px-5 py-2 rounded-2xl shadow-lg shadow-ggreen/10">{person.cargo || 'LOGÍSTICA'}</span>
@@ -697,13 +718,14 @@ const App: React.FC = () => {
       {isLicenseExpired && <LicenseGuard onActivate={handleActivate} />}
       
       <header className="bg-gblack p-4 text-white flex items-center gap-3 shadow-2xl sticky top-0 z-[1000] rounded-b-3xl">
-         <div className="w-10 h-10 border-2 border-ggreen rounded-xl flex items-center justify-center font-black shadow-lg shadow-ggreen/10 text-xl overflow-hidden relative">
-            <div className="absolute inset-0 bg-ggreen/10"></div>
-            <span className="relative z-10 text-ggreen">g</span>
-         </div>
-         <div className="flex-1">
-            <span className="text-sm font-black tracking-widest uppercase block leading-none brand-font"><span className="text-ggreen">gate</span>gourmet</span>
-            <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1">Control de Personal GGT</span>
+         <div className="flex items-center gap-3 flex-1">
+            <div className="w-10 h-10 border-2 border-ggreen rounded-xl flex items-center justify-center font-black shadow-lg shadow-ggreen/10 overflow-hidden relative bg-white">
+               <img src={logoUrl} alt="Logo" className="w-full h-full object-contain p-1" />
+            </div>
+            <div className="flex flex-col">
+               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-tight">Control de</span>
+               <span className="text-sm font-black text-white uppercase tracking-widest leading-none">Personal CTP</span>
+            </div>
          </div>
          <button onClick={() => setCurrentView(View.SETTINGS)} className="w-10 h-10 bg-white/5 hover:bg-white/10 rounded-xl flex items-center justify-center text-white transition-all active:scale-90">
             <i className="fas fa-cog"></i>

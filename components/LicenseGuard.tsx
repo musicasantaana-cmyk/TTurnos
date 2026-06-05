@@ -28,13 +28,13 @@ export const LicenseGuard: React.FC<LicenseGuardProps> = ({ onActivate }) => {
     <div className="fixed inset-0 bg-gblack flex items-center justify-center z-[2000] p-4 text-white overflow-y-auto">
       <div className="bg-white rounded-[2.5rem] shadow-2xl p-8 max-w-md w-full text-gblack border-t-[12px] border-ggreen my-auto">
         <div className="flex justify-center mb-6">
-          <div className="w-20 h-20 bg-ggreen/10 rounded-3xl flex items-center justify-center text-ggreen shadow-inner">
-            <i className="fas fa-shield-halved text-3xl"></i>
+          <div className="w-20 h-20 bg-white border-2 border-ggreen rounded-full flex items-center justify-center shadow-lg overflow-hidden relative">
+            <img src="/src/assets/images/promo_ambiental_logo_1780671403616.png" alt="CTP Logo" className="w-full h-full object-contain p-2" />
           </div>
         </div>
         
-        <h2 className="text-2xl font-black text-center mb-2 tracking-tight uppercase brand-font">gate<span className="text-ggreen">gourmet</span></h2>
-        <p className="text-slate-400 text-[10px] font-black uppercase text-center tracking-widest mb-6">Filtro de Seguridad GGT</p>
+        <h2 className="text-2xl font-black text-center mb-2 tracking-tight uppercase brand-font text-gblack">Control de Personal CTP</h2>
+        <p className="text-slate-400 text-[10px] font-black uppercase text-center tracking-widest mb-6">Filtro de Seguridad</p>
         
         <div className="bg-red-50 p-5 rounded-3xl mb-6 border border-red-100">
           <p className="text-red-700 text-[11px] font-black uppercase leading-tight text-center">

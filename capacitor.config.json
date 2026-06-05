@@ -1,7 +1,7 @@
 
 {
-  "appId": "com.gategourmet.ggt.turnos",
-  "appName": "GGT Turnos",
+  "appId": "com.promoambiental.ctp.turnos",
+  "appName": "CTP Turnos",
   "webDir": ".",
   "bundledWebRuntime": false,
   "server": {

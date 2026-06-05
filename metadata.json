@@ -1,6 +1,6 @@
 {
-  "name": "GGT GateGourmet Control",
-  "description": "Control de turnos profesional para GateGourmet. Escaneo QR de alta velocidad y gestión de base de datos local de 2000 usuarios.",
+  "name": "CTP Control de turno",
+  "description": "Control de turnos profesional para Control de turno. Escaneo QR de alta velocidad y gestión de base de datos local de 2000 usuarios.",
   "requestFramePermissions": [
     "camera",
     "microphone"
@@ -8,6 +8,8 @@
   "androidPermissions": [
     "android.permission.CAMERA",
     "android.permission.WRITE_EXTERNAL_STORAGE",
-    "android.permission.READ_EXTERNAL_STORAGE"
-  ]
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.READ_MEDIA_IMAGES"
+  ],
+  "majorCapabilities": []
 }
