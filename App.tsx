@@ -35,6 +35,11 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [enrollmentForm, setEnrollmentForm] = useState<Partial<Person>>({});
+  
+  // Indicators form state
+  const [indSelectedPerson, setIndSelectedPerson] = useState<string>('');
+  const [indStartDate, setIndStartDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [indEndDate, setIndEndDate] = useState<string>(new Date().toISOString().slice(0, 10));
 
   // Solicitud de permisos nativos al montar la aplicación (Crítico para APK)
   useEffect(() => {
@@ -314,6 +319,10 @@ const App: React.FC = () => {
       <button onClick={() => setCurrentView(View.REPORTS)} className={`flex flex-col items-center justify-center w-full h-full transition-all active:scale-90 ${currentView === View.REPORTS ? 'text-ggreen scale-110' : 'text-slate-500 opacity-60'}`}>
         <i className="fas fa-file-invoice text-2xl mb-1"></i>
         <span className="text-[10px] font-black uppercase tracking-wider">Reportes</span>
+      </button>
+      <button onClick={() => setCurrentView(View.INDICATORS)} className={`flex flex-col items-center justify-center w-full h-full transition-all active:scale-90 ${[View.INDICATORS, View.INDICATORS_SETTINGS].includes(currentView) ? 'text-ggreen scale-110' : 'text-slate-500 opacity-60'}`}>
+        <i className="fas fa-chart-line text-2xl mb-1"></i>
+        <span className="text-[10px] font-black uppercase tracking-wider">Indicadores</span>
       </button>
     </nav>
   );
@@ -596,8 +605,316 @@ const App: React.FC = () => {
          </div>
          <button onClick={exportMasterDatabase} className="bg-ggreen/10 text-ggreen px-4 py-2 rounded-xl text-[10px] font-black uppercase active:scale-90 transition-all">Compartir</button>
       </div>
+
+      <button onClick={() => setCurrentView(View.BACKUP_SETTINGS)} className="w-full bg-white p-6 rounded-3xl border border-slate-100 flex items-center justify-between group hover:border-ggreen/30 transition-all">
+         <div className="flex items-center gap-3 text-left">
+            <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-500">
+               <i className="fas fa-cloud-upload-alt text-lg"></i>
+            </div>
+            <div>
+               <p className="text-[10px] font-black uppercase tracking-widest text-gblack mb-1">Backup Automático</p>
+               <p className="text-[8px] font-bold text-slate-400 leading-tight">Configurar envío al correo en CSV</p>
+            </div>
+         </div>
+         <div className="flex items-center gap-2">
+            {state.backupConfig?.active && (
+               <span className="w-2 h-2 rounded-full bg-ggreen"></span>
+            )}
+            <i className="fas fa-chevron-right text-slate-300 group-hover:text-ggreen transition-colors"></i>
+         </div>
+      </button>
     </div>
   );
+
+  const calculateIndicators = () => {
+    if (!indSelectedPerson || !indStartDate || !indEndDate) return null;
+    
+    // Check if end date is before start date
+    if (indEndDate < indStartDate) return null;
+
+    const personShifts = state.shifts.filter(s => s.personKey === indSelectedPerson && s.dateStr >= indStartDate && s.dateStr <= indEndDate).sort((a,b) => a.timestamp - b.timestamp);
+    const shiftsByDate: Record<string, ShiftRecord[]> = {};
+    personShifts.forEach(s => {
+      if(!shiftsByDate[s.dateStr]) shiftsByDate[s.dateStr] = [];
+      shiftsByDate[s.dateStr].push(s);
+    });
+    
+    let totalActualHours = 0;
+    let totalExpectedHours = 0;
+    let daysCount = 0;
+    let daysWorkedCount = 0;
+    
+    const [sY, sM, sD] = indStartDate.split('-').map(Number);
+    let currentDate = new Date(sY, sM - 1, sD);
+    const [eY, eM, eD] = indEndDate.split('-').map(Number);
+    const endDate = new Date(eY, eM - 1, eD);
+    
+    while(currentDate <= endDate) {
+      const dateStr = currentDate.getFullYear() + '-' + String(currentDate.getMonth() + 1).padStart(2, '0') + '-' + String(currentDate.getDate()).padStart(2, '0');
+      const dayOfWeek = currentDate.getDay(); // 0-6 (Sun-Sat)
+      
+      const config = state.scheduleConfig?.[dayOfWeek] || { start: '07:00', end: '14:00', active: true };
+      let expectedHours = 0;
+      if (config.active) {
+        const [startH, startM] = config.start.split(':').map(Number);
+        const [endH, endM] = config.end.split(':').map(Number);
+        expectedHours = (endH + endM/60) - (startH + startM/60);
+        if (expectedHours < 0) expectedHours += 24; 
+      }
+      
+      totalExpectedHours += expectedHours;
+      daysCount++;
+      
+      const dayShifts = shiftsByDate[dateStr] || [];
+      let dayActualHours = 0;
+      let lastIn: number | null = null;
+      dayShifts.forEach(s => {
+        if (s.type === 'INICIO') {
+          lastIn = s.timestamp;
+        } else if (s.type === 'FIN' && lastIn !== null) {
+          dayActualHours += (s.timestamp - lastIn) / (1000 * 60 * 60);
+          lastIn = null;
+        }
+      });
+      if (dayActualHours > 0) {
+          daysWorkedCount++;
+      }
+      totalActualHours += dayActualHours;
+      
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    return {
+      totalActualHours,
+      totalExpectedHours,
+      avgHoursPerDay: daysWorkedCount > 0 ? totalActualHours / daysWorkedCount : 0,
+      compliancePercentage: totalExpectedHours > 0 ? (totalActualHours / totalExpectedHours) * 100 : 0
+    };
+  };
+
+  const renderIndicators = () => {
+    const indicators = calculateIndicators();
+    const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+    return (
+      <div className="p-6 pb-24 space-y-6 animate-in fade-in duration-500">
+        <div className="flex justify-between items-center bg-white p-4 rounded-[2rem] shadow-sm border border-slate-100">
+          <div className="flex items-center gap-4">
+             <button onClick={() => setCurrentView(View.INDICATORS_SETTINGS)} className="w-12 h-12 bg-slate-50 border-2 border-slate-100 rounded-xl flex items-center justify-center text-slate-400 active:scale-90 transition-all hover:text-ggreen hover:border-ggreen/30">
+               <i className="fas fa-cog text-xl"></i>
+             </button>
+             <div>
+                <h2 className="text-xl font-black text-gblack mb-0 leading-tight">Indicadores</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-tight">Rendimiento Laboral</p>
+             </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 space-y-5">
+           <div className="space-y-2">
+             <label className="text-[9px] uppercase font-black text-ggreen tracking-widest block">Seleccionar Personal</label>
+             <select 
+               value={indSelectedPerson} 
+               onChange={(e) => setIndSelectedPerson(e.target.value)}
+               className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-sm font-bold text-gblack focus:border-ggreen outline-none appearance-none"
+             >
+               <option value="">-- Seleccione una persona --</option>
+               {state.personnel.map(p => (
+                 <option key={p.key} value={p.key}>{p.nombre} {p.apellido} ({p.cedula})</option>
+               ))}
+             </select>
+           </div>
+           <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                 <label className="text-[9px] uppercase font-black text-ggreen tracking-widest block">Fecha Inicial</label>
+                 <input 
+                   type="date" 
+                   value={indStartDate} 
+                   onChange={(e) => setIndStartDate(e.target.value)}
+                   className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-xs font-bold text-gblack focus:border-ggreen outline-none"
+                 />
+              </div>
+              <div className="space-y-2">
+                 <label className="text-[9px] uppercase font-black text-ggreen tracking-widest block">Fecha Final</label>
+                 <input 
+                   type="date" 
+                   value={indEndDate} 
+                   onChange={(e) => setIndEndDate(e.target.value)}
+                   className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-xs font-bold text-gblack focus:border-ggreen outline-none"
+                 />
+              </div>
+           </div>
+        </div>
+
+        {indicators && (
+          <div className="space-y-4">
+             <div className="bg-gblack text-white p-6 rounded-[2rem] shadow-xl relative overflow-hidden flex flex-col items-center justify-center py-10">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-ggreen rounded-bl-full opacity-10"></div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Cumplimiento Global</span>
+                <div className="flex items-end gap-2">
+                   <h3 className={`text-6xl font-black tracking-tighter ${indicators.compliancePercentage >= 100 ? 'text-ggreen' : indicators.compliancePercentage >= 80 ? 'text-yellow-400' : 'text-red-400'}`}>
+                     {indicators.compliancePercentage.toFixed(1)}
+                   </h3>
+                   <span className="text-2xl font-bold pb-2">%</span>
+                </div>
+             </div>
+
+             <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                   <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 mb-3">
+                     <i className="fas fa-clock text-lg"></i>
+                   </div>
+                   <span className="text-3xl font-black text-gblack tracking-tight">{indicators.totalActualHours.toFixed(1)}<span className="text-sm">h</span></span>
+                   <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mt-1">Horas Trabajadas</span>
+                </div>
+                <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                   <div className="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-400 mb-3">
+                     <i className="fas fa-calendar-check text-lg"></i>
+                   </div>
+                   <span className="text-3xl font-black text-gblack tracking-tight">{indicators.avgHoursPerDay.toFixed(1)}<span className="text-sm">h</span></span>
+                   <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 mt-1">Promedio / Día</span>
+                </div>
+             </div>
+             
+             <div className="bg-slate-100 p-5 rounded-[2rem] flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">Horas Esperadas Rango</span>
+                <span className="text-lg font-black text-gblack">{indicators.totalExpectedHours.toFixed(1)} h</span>
+             </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderIndicatorsSettings = () => {
+    const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    
+    // In order to not directly mutate state, we create a copy setter
+    const updateSchedule = (dayIndex: number, field: 'start' | 'end' | 'active', value: any) => {
+      const newConfig = { ...state.scheduleConfig };
+      newConfig[dayIndex] = { ...newConfig[dayIndex], [field]: value };
+      setState(prev => ({ ...prev, scheduleConfig: newConfig }));
+    };
+
+    return (
+      <div className="p-6 pb-24 space-y-6 animate-in slide-in-from-right duration-300">
+        <div className="flex items-center gap-4">
+          <button onClick={() => setCurrentView(View.INDICATORS)} className="w-10 h-10 bg-white shadow-sm border border-slate-100 rounded-xl flex items-center justify-center text-slate-600 active:scale-90 transition-all">
+            <i className="fas fa-arrow-left"></i>
+          </button>
+          <div>
+            <h2 className="text-xl font-black text-gblack mb-0 leading-tight">Configuración</h2>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-tight">Rangos de Horario</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 space-y-6">
+           <p className="text-xs text-slate-500 leading-relaxed font-medium">Configure los horarios esperados por día para calcular correctamente los indicadores de cumplimiento.</p>
+           
+           <div className="space-y-4">
+             {dayNames.map((dayName, index) => {
+               const config = state.scheduleConfig?.[index] || { start: '07:00', end: '14:00', active: true };
+               return (
+                 <div key={index} className="flex flex-col gap-2 p-4 bg-slate-50 border-2 border-slate-100 rounded-xl">
+                   <div className="flex justify-between items-center mb-2">
+                     <span className="text-xs font-black text-gblack uppercase tracking-widest">{dayName}</span>
+                     <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" checked={config.active} onChange={(e) => updateSchedule(index, 'active', e.target.checked)} />
+                        <div className="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-ggreen"></div>
+                     </label>
+                   </div>
+                   {config.active && (
+                     <div className="flex gap-4">
+                        <div className="flex-1">
+                          <label className="text-[8px] uppercase font-black text-slate-400 tracking-widest block mb-1">Entrada</label>
+                          <input type="time" value={config.start} onChange={(e) => updateSchedule(index, 'start', e.target.value)} className="w-full bg-white p-2 rounded-lg border border-slate-200 text-xs font-bold focus:border-ggreen outline-none"/>
+                        </div>
+                        <div className="flex-1">
+                          <label className="text-[8px] uppercase font-black text-slate-400 tracking-widest block mb-1">Salida</label>
+                          <input type="time" value={config.end} onChange={(e) => updateSchedule(index, 'end', e.target.value)} className="w-full bg-white p-2 rounded-lg border border-slate-200 text-xs font-bold focus:border-ggreen outline-none"/>
+                        </div>
+                     </div>
+                   )}
+                 </div>
+               );
+             })}
+           </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderBackupSettings = () => {
+    const updateBackupConfig = (field: 'active' | 'email' | 'prefix', value: any) => {
+      setState(prev => ({
+        ...prev,
+        backupConfig: {
+          ...prev.backupConfig,
+          [field]: value
+        }
+      }));
+    };
+
+    return (
+      <div className="p-6 pb-24 space-y-6 animate-in slide-in-from-right duration-300">
+        <div className="flex items-center gap-4">
+          <button onClick={() => setCurrentView(View.SETTINGS)} className="w-10 h-10 bg-white shadow-sm border border-slate-100 rounded-xl flex items-center justify-center text-slate-600 active:scale-90 transition-all">
+            <i className="fas fa-arrow-left"></i>
+          </button>
+          <div>
+            <h2 className="text-xl font-black text-gblack mb-0 leading-tight">Backup Nube</h2>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest leading-tight">Configuración de Drive</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 space-y-6">
+           <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100">
+             <div>
+                <span className="text-xs font-black text-gblack uppercase tracking-widest block mb-1">Activar Envío Automático</span>
+                <span className="text-[10px] font-bold text-slate-400 block leading-tight">Sube CSV diariamente</span>
+             </div>
+             <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" className="sr-only peer" checked={state.backupConfig?.active || false} onChange={(e) => updateBackupConfig('active', e.target.checked)} />
+                <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-ggreen"></div>
+             </label>
+           </div>
+
+           <div className="space-y-4">
+             <div className="space-y-2">
+                <label className="text-[9px] uppercase font-black text-ggreen tracking-widest block">Correo Electrónico (Google Drive)</label>
+                <input 
+                  type="email" 
+                  value={state.backupConfig?.email || ''} 
+                  onChange={(e) => updateBackupConfig('email', e.target.value)}
+                  placeholder="ejemplo@gmail.com"
+                  className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-sm font-bold text-gblack focus:border-ggreen outline-none"
+                />
+             </div>
+             
+             <div className="space-y-2">
+                <label className="text-[9px] uppercase font-black text-ggreen tracking-widest block">Nombre Centro Operativo (Prefijo)</label>
+                <input 
+                  type="text" 
+                  value={state.backupConfig?.prefix || 'CTP'} 
+                  onChange={(e) => updateBackupConfig('prefix', e.target.value)}
+                  placeholder="Ej. BOGOTA_SUR"
+                  className="w-full bg-slate-50 p-4 rounded-xl border-2 border-slate-100 text-sm font-bold text-gblack focus:border-ggreen outline-none"
+                />
+             </div>
+
+             <div className="p-4 bg-slate-100 rounded-xl mt-4">
+               <span className="text-[9px] font-black uppercase text-slate-400 tracking-widest block mb-1">Formato Archivo Final:</span>
+               <span className="text-xs font-mono text-slate-800 font-bold">{state.backupConfig?.prefix || 'CTP'}_{new Date().toISOString().slice(0, 10)}.csv</span>
+             </div>
+             
+             <p className="text-[10px] text-slate-400 font-bold uppercase leading-relaxed pt-2">
+               Nota: El acceso definitivo a Drive OAuth y el envío automatizado por cron se habilitará luego como insumo de Inteligencia de Negocios en Línea.
+             </p>
+           </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderConflict = () => {
     const existing = state.personnel.find(p => p.key === (enrollmentForm.key || pendingScanResult));
@@ -741,6 +1058,9 @@ const App: React.FC = () => {
         {currentView === View.EDIT_PERSON && renderForm(true)}
         {currentView === View.SHIFT_ACTION && renderShiftAction()}
         {currentView === View.CONFLICT && renderConflict()}
+        {currentView === View.INDICATORS && renderIndicators()}
+        {currentView === View.INDICATORS_SETTINGS && renderIndicatorsSettings()}
+        {currentView === View.BACKUP_SETTINGS && renderBackupSettings()}
       </main>
 
       {renderBottomNav()}

@@ -1,12 +1,30 @@
 
-import { AppState, Person, ShiftRecord } from '../types';
+import { AppState, Person, ShiftRecord, DaySchedule, BackupConfig } from '../types';
 import { STORAGE_KEY } from '../constants';
+
+const defaultScheduleConfig: Record<number, DaySchedule> = {
+  0: { start: '08:00', end: '15:00', active: true },
+  1: { start: '08:00', end: '15:00', active: true },
+  2: { start: '08:00', end: '15:00', active: true },
+  3: { start: '08:00', end: '15:00', active: true },
+  4: { start: '08:00', end: '15:00', active: true },
+  5: { start: '08:00', end: '15:00', active: true },
+  6: { start: '08:00', end: '15:00', active: true },
+};
+
+const defaultBackupConfig: BackupConfig = {
+  active: false,
+  email: '',
+  prefix: 'CTP'
+};
 
 const initialState: AppState = {
   personnel: [],
   shifts: [],
   installDate: Date.now(),
-  isActivated: false
+  isActivated: false,
+  scheduleConfig: defaultScheduleConfig,
+  backupConfig: defaultBackupConfig
 };
 
 export const loadState = (): AppState => {
@@ -19,7 +37,9 @@ export const loadState = (): AppState => {
       ...initialState,
       ...parsed,
       personnel: parsed.personnel || [],
-      shifts: parsed.shifts || []
+      shifts: parsed.shifts || [],
+      scheduleConfig: parsed.scheduleConfig || defaultScheduleConfig,
+      backupConfig: parsed.backupConfig || defaultBackupConfig
     };
   } catch (e) {
     return initialState;

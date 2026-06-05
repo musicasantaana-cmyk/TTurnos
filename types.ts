@@ -18,11 +18,25 @@ export interface ShiftRecord {
   dateStr: string; // YYYY-MM-DD for grouping
 }
 
+export interface DaySchedule {
+  start: string;
+  end: string;
+  active: boolean;
+}
+
+export interface BackupConfig {
+  active: boolean;
+  email: string;
+  prefix: string;
+}
+
 export interface AppState {
   personnel: Person[];
   shifts: ShiftRecord[];
   installDate: number;
   isActivated: boolean;
+  scheduleConfig: Record<number, DaySchedule>;
+  backupConfig: BackupConfig;
 }
 
 export enum View {
@@ -33,5 +47,8 @@ export enum View {
   ENROLLMENT = 'enrollment',
   SHIFT_ACTION = 'shift_action',
   EDIT_PERSON = 'edit_person',
-  CONFLICT = 'conflict'
+  CONFLICT = 'conflict',
+  INDICATORS = 'indicators',
+  INDICATORS_SETTINGS = 'indicators_settings',
+  BACKUP_SETTINGS = 'backup_settings'
 }
